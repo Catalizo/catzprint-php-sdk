@@ -2,6 +2,7 @@
     "name": "catalizo/catzprint",
     "description": "Sdk for remote printing",
     "type": "library",
+    "license": "MIT",
     "require": {
         "php": "^8.4",
         "ext-curl": "*",
