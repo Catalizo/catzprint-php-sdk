@@ -16,7 +16,6 @@ class ApiClientTest extends TestCase
         $client = new ApiClient($this->apiKey);
         $response = $client->sendRequest('/print-job', 'POST', [
             'source' => 'php',
-            'clientId' => '',
             'content' => ['test' => 'test'],
             'orderId' => 'test'
         ]);

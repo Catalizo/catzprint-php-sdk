@@ -8,7 +8,7 @@ use CatzPrint\Exceptions\PrintingException;
 class ApiClient
 {
     protected $apiKey;
-    protected $baseUrl = 'http://localhost:4040/api/v1/sdk';
+    protected $baseUrl = 'https://api.catzprint.com/api/v1/sdk';
     protected $timeout = 10;
 
     public function __construct(string $apiKey)
