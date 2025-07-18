@@ -22,7 +22,8 @@ class ApiClient
         $headers = [
             'Authorization: Bearer ' . $this->apiKey,
             'Content-Type: application/json',
-            'Accept: application/json'
+            'Accept: application/json',
+            'User-Agent: php'
         ];
 
         $ch = curl_init($url);
