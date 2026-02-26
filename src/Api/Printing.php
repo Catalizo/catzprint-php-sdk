@@ -45,6 +45,10 @@ class Printing
         ];
 
         $response = $this->apiClient->sendRequest('/print-job', 'POST', $payload);
+
+        $this->content = null;
+        $this->orderId = null;
+
         return $response['data']['pjId'] ?? '';
     }
 }
