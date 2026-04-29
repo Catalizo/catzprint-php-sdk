@@ -42,6 +42,32 @@ class ReceiptPrinter
         return $this;
     }
 
+    public function qr(string $content, int $size = 8, string $alignment = 'center'): self
+    {
+        if (trim($content) === '') {
+            throw new \InvalidArgumentException("QR content cannot be empty");
+        }
+
+        if ($size < 1 || $size > 8) {
+            throw new \InvalidArgumentException("QR size must be between 1 and 8");
+        }
+
+        $alignment = strtolower(trim($alignment));
+
+        if (!in_array($alignment, ['left', 'center', 'right'], true)) {
+            throw new \InvalidArgumentException("Alignment must be 'left', 'center', or 'right'");
+        }
+
+        $this->commands[] = [
+            'action' => 'qr',
+            'content' => $content,
+            'size' => $size,
+            'alignment' => $alignment,
+        ];
+
+        return $this;
+    }
+
     public function twoColumnText(string $left, string $right): self
     {
         $this->commands[] = ['action' => 'twoColumnText', 'left' => $left, 'right' => $right];
