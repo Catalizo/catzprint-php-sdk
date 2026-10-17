@@ -1,0 +1,23 @@
+[
+  {
+    "name": "job.printed",
+    "secret": "whsec_9f8e7d6c5b4a39281706f5e4d3c2b1a0",
+    "timestamp": 1791796443,
+    "body": "{\"created_at\":\"2026-10-12T09:14:03Z\",\"data\":{\"job\":{\"id\":\"6f1c2a7e-0000-4000-8000-000000000001\",\"status\":\"printed\",\"reference\":\"order-1042\"}},\"org_id\":\"9b2f0000-0000-4000-8000-000000000000\",\"type\":\"job.printed\"}",
+    "header": "t=1791796443,v1=75d920b0c18c3c21e96e3b217753572c78d9444ff1eb355ddd76d7d203f2fde2"
+  },
+  {
+    "name": "unicode",
+    "secret": "whsec_unicode_secret",
+    "timestamp": 1791800000,
+    "body": "{\"created_at\":\"2026-10-12T10:00:00Z\",\"data\":{\"job\":{\"title\":\"Café € ✓\"}},\"org_id\":\"o\",\"type\":\"job.created\"}",
+    "header": "t=1791800000,v1=c8312b8b1fb1eb9c746f0034b1eab5d2e5d6e8e2c987e2adcade5a539d2f6fb5"
+  },
+  {
+    "name": "station.offline",
+    "secret": "whsec_another",
+    "timestamp": 1700000000,
+    "body": "{\"created_at\":\"2023-11-14T22:13:20Z\",\"data\":{\"station\":{\"id\":\"s1\"}},\"org_id\":\"o2\",\"type\":\"station.offline\"}",
+    "header": "t=1700000000,v1=179145dfece4e18e70c32a1044965a4a575c1d29141df534fda0db6e6eebb421"
+  }
+]
