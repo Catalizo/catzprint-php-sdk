@@ -59,6 +59,8 @@ $key->hasScope('jobs:write'); // true
 Pick the printer with `printerId`, or let CatzPrint route the job with `role` (`receipt`, `kitchen`, `bar`, `label`, `office`,
 `other`) and optionally `locationId`. Every helper accepts any `jobs->create()` option.
 
+Printer names aren't unique (two stations can each have a "Kitchen"), so target printers by ID. `$catz->printers->list()` returns each printer's `id`, `station_id`, `station_name`, `location_id` and `role`. Optional shortcut: in the CatzPrint console, open **Locations & stations** (**My devices** in a personal account), then a station, and click the ID under a printer's name to copy it.
+
 ```php
 // Plain text
 $catz->printText("Hello!\n", ['printerId' => $printerId, 'title' => 'Greeting']);
