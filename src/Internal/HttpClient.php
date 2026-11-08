@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CatzPrint\Internal;
 
 use CatzPrint\Client;
+use CatzPrint\Exception\AuthenticationException;
 use CatzPrint\Exception\CatzPrintException;
 use CatzPrint\Exception\ConnectionException;
 
@@ -39,6 +40,26 @@ final class HttpClient
         };
     }
 
+    /**
+     * A copy with another timeout and retry policy (same key, base URL and
+     * sleeper), e.g. for the single, short cloud attempt of cloud_first.
+     */
+    public function with(float $timeout, RetryPolicy $retry): self
+    {
+        return new self($this->apiKey, $this->baseUrl, $timeout, $retry, $this->sleeper);
+    }
+
+    /** False for a client without an API key (a paired device in local mode). */
+    public function hasApiKey(): bool
+    {
+        return $this->apiKey !== '';
+    }
+
+    public function timeout(): float
+    {
+        return $this->timeout;
+    }
+
     public function baseUrl(): string
     {
         return $this->baseUrl;
@@ -59,6 +80,53 @@ final class HttpClient
      */
     public function request(string $method, string $path, array $query = [], ?array $body = null, bool $authenticated = true): array
     {
+        return $this->requestWith($method, $path, $query, $body, null, $authenticated);
+    }
+
+    /**
+     * Encodes a JSON body once, so the exact same bytes can be sent again
+     * (sendEncoded()) for a retry or a re-send.
+     *
+     * @param array<string, mixed> $body
+     */
+    public static function encode(array $body): string
+    {
+        if ($body === []) {
+            return '{}';
+        }
+        try {
+            return json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \InvalidArgumentException('Request body could not be encoded as JSON: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * Sends a pre-encoded JSON body (from encode()) unchanged. Retried like
+     * request() when $retryable (it carries an idempotency key).
+     *
+     * @return array<string, mixed>
+     */
+    public function sendEncoded(string $method, string $path, string $payload, bool $retryable, ?callable $onAmbiguousRetry = null): array
+    {
+        return $this->requestWith($method, $path, [], null, $payload, true, $retryable, $onAmbiguousRetry);
+    }
+
+    /**
+     * @param array<string, scalar|null> $query
+     * @param array<string, mixed>|null  $body
+     *
+     * @return array<string, mixed>
+     */
+    private function requestWith(string $method, string $path, array $query, ?array $body, ?string $encoded, bool $authenticated, ?bool $retryableOverride = null, ?callable $onAmbiguousRetry = null): array
+    {
+        if ($this->apiKey === '') {
+            throw new AuthenticationException(
+                'This client has no API key (a paired device in local mode), so it can\'t call the CatzPrint API.',
+                0,
+                'missing_api_key',
+            );
+        }
         $method = strtoupper($method);
         $url = $this->baseUrl . $path;
         $query = array_filter($query, static fn ($v) => $v !== null && $v !== '');
@@ -68,18 +136,9 @@ final class HttpClient
                 $query,
             ), '', '&', PHP_QUERY_RFC3986);
         }
-        $payload = null;
-        if ($body === []) {
-            $payload = '{}';
-        } elseif ($body !== null) {
-            try {
-                $payload = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
-            } catch (\JsonException $e) {
-                throw new \InvalidArgumentException('Request body could not be encoded as JSON: ' . $e->getMessage(), 0, $e);
-            }
-        }
-        $retryable = ($method !== 'POST' && $method !== 'PATCH')
-            || (is_array($body) && isset($body['idempotency_key']) && $body['idempotency_key'] !== '');
+        $payload = $encoded ?? ($body === null ? null : self::encode($body));
+        $retryable = $retryableOverride ?? (($method !== 'POST' && $method !== 'PATCH')
+            || (is_array($body) && isset($body['idempotency_key']) && $body['idempotency_key'] !== ''));
 
         for ($attempt = 0; ; $attempt++) {
             try {
@@ -88,6 +147,9 @@ final class HttpClient
                 $wait = $retryable ? $this->retry->delay($attempt) : null;
                 if ($wait === null) {
                     throw $e;
+                }
+                if ($onAmbiguousRetry !== null && $e->requestDelivered()) {
+                    $onAmbiguousRetry(); // the failed attempt may have reached the API
                 }
                 $this->sleep($wait);
                 continue;
@@ -185,13 +247,18 @@ final class HttpClient
         if ($ok === false) {
             $errno = curl_errno($ch);
             $msg = curl_error($ch);
+            // Was the whole request (headers and body) sent before it failed?
+            // Then the API may have acted on it ("delivered, no answer").
+            $delivered = (int) curl_getinfo($ch, CURLINFO_REQUEST_SIZE) > 0
+                && (int) curl_getinfo($ch, CURLINFO_SIZE_UPLOAD_T) >= strlen($payload ?? '');
             curl_close($ch);
             $timedOut = $errno === CURLE_OPERATION_TIMEDOUT;
-            throw new ConnectionException(
+            $e = new ConnectionException(
                 ($timedOut ? 'Request to CatzPrint timed out' : 'Could not reach CatzPrint') . ': ' . $msg,
                 0,
                 $timedOut ? 'timeout' : 'connection_error',
             );
+            throw $delivered ? $e->markDelivered() : $e;
         }
         $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
         curl_close($ch);

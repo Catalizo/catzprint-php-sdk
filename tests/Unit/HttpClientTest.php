@@ -85,7 +85,7 @@ final class HttpClientTest extends TestCase
         $this->assertSame('GET', $req['method']);
         $this->assertSame('/v1/orgs/' . self::ORG . '/printers', $req['path']);
         $this->assertSame('Bearer ' . self::KEY, $req['headers']['authorization']);
-        $this->assertSame('catzprint-php/2.1.3', $req['headers']['user-agent']);
+        $this->assertSame('catzprint-php/2.2.1', $req['headers']['user-agent']);
         $this->assertSame('application/json', $req['headers']['accept']);
     }
 

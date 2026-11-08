@@ -13,6 +13,11 @@ final class Job extends Model
 {
     public const FINAL_STATUSES = ['printed', 'failed', 'cancelled'];
 
+    /** Job::$via: a station on the local network took the job. */
+    public const VIA_LOCAL = 'local';
+    /** Job::$via: the CatzPrint API took the job. */
+    public const VIA_CLOUD = 'cloud';
+
     public readonly string $id;
     /** False for test jobs (test keys); those are never billed. */
     public readonly bool $live;
@@ -46,12 +51,35 @@ final class Job extends Model
     public readonly ?\DateTimeImmutable $finishedAt;
     /** @var list<JobEvent>|null Status history; only set by Jobs::get(). */
     public readonly ?array $events;
+    /**
+     * True when a station printed the job through its local API (directly,
+     * or reported later by reconciliation).
+     */
+    public readonly bool $printedLocally;
+    /** Name of the device that sent a local job. */
+    public readonly ?string $localDevice;
+    /**
+     * Set on a job recorded by reconciliation when another job with the same
+     * idempotency key had already printed elsewhere.
+     */
+    public readonly ?string $duplicateOf;
+    /** True (in webhook payloads) when the station had no cloud connection when it printed. */
+    public readonly bool $offline;
+    /** The job's idempotency key, when the API or station reports it. */
+    public readonly ?string $idempotencyKey;
+    /**
+     * Set by the SDK: "local" when a station on the local network took the
+     * job, "cloud" when the CatzPrint API did (Jobs::create() and get()).
+     */
+    public readonly ?string $via;
+    /** The station's own view of a local job (when $via is "local"). */
+    public readonly ?LocalJob $local;
 
     /**
      * @param array<string, mixed>             $data
      * @param list<array<string, mixed>>|null  $events
      */
-    public function __construct(array $data, ?array $events = null)
+    public function __construct(array $data, ?array $events = null, ?string $via = null, ?LocalJob $local = null)
     {
         parent::__construct($data);
         $this->id = self::str($data, 'id');
@@ -79,6 +107,13 @@ final class Job extends Model
         $this->sentAt = self::date($data, 'sent_at');
         $this->printedAt = self::date($data, 'printed_at');
         $this->finishedAt = self::date($data, 'finished_at');
+        $this->printedLocally = self::bool($data, 'printed_locally');
+        $this->localDevice = self::strOrNull($data, 'local_device');
+        $this->duplicateOf = self::strOrNull($data, 'duplicate_of');
+        $this->offline = self::bool($data, 'offline');
+        $this->idempotencyKey = self::strOrNull($data, 'idempotency_key');
+        $this->via = $via;
+        $this->local = $local;
         $this->events = $events === null ? null : array_values(array_map(
             static fn (array $e): JobEvent => new JobEvent($e),
             array_filter($events, 'is_array'),

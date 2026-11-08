@@ -6,10 +6,16 @@ namespace CatzPrint;
 
 use CatzPrint\Exception\CatzPrintException;
 use CatzPrint\Internal\HttpClient;
+use CatzPrint\Internal\Local\LocalConfig;
+use CatzPrint\Internal\Local\LocalState;
 use CatzPrint\Internal\RetryPolicy;
 use CatzPrint\Model\Job;
 use CatzPrint\Model\Key;
+use CatzPrint\Local\Mode;
 use CatzPrint\Resource\Jobs;
+use CatzPrint\Resource\Local;
+use CatzPrint\Resource\LocalEndpoints;
+use CatzPrint\Resource\LocalTokens;
 use CatzPrint\Resource\Locations;
 use CatzPrint\Resource\Printers;
 use CatzPrint\Resource\Templates;
@@ -21,10 +27,13 @@ use CatzPrint\Resource\Webhooks;
  *     $catz = new CatzPrint\Client('cz_test_…');          // or CATZPRINT_API_KEY
  *     $job  = $catz->printText("Hello\n", ['role' => 'receipt']);
  *     $job  = $catz->jobs->waitFor($job->id);
+ *
+ * With the "local" option jobs can print through a CatzPrint station on the
+ * same network while the internet is down (see the README, "Local printing").
  */
 final class Client
 {
-    public const VERSION = '2.1.3';
+    public const VERSION = '2.2.1';
     public const USER_AGENT = 'catzprint-php/' . self::VERSION;
     public const DEFAULT_BASE_URL = 'https://api-v1.catzprint.com';
 
@@ -33,6 +42,12 @@ final class Client
     public readonly Locations $locations;
     public readonly Templates $templates;
     public readonly Webhooks $webhooks;
+    /** Stations on the local network (status, discovery, pairing, local jobs). */
+    public readonly Local $local;
+    /** Mint and revoke local tokens. */
+    public readonly LocalTokens $localTokens;
+    /** The organization's stations' local addresses. */
+    public readonly LocalEndpoints $localEndpoints;
 
     private readonly HttpClient $http;
     private readonly string $apiKey;
@@ -40,31 +55,48 @@ final class Client
     private ?Key $key = null;
     private ?string $serverKey = null;
     private float $serverKeyFetchedAt = 0.0;
+    private readonly LocalState $localState;
 
     /** Seconds the server public key is cached for. */
     private const SERVER_KEY_TTL = 300.0;
 
     /**
      * @param string|null $apiKey  cz_live_… or cz_test_…; defaults to env CATZPRINT_API_KEY.
+     *                             Only a paired device in local mode (local option with
+     *                             mode "local" and a "token") can work without one.
      * @param array{
      *   baseUrl?: string, orgId?: string, timeout?: float, maxRetries?: int,
-     *   sleeper?: callable(float): void, random?: callable(): float
+     *   sleeper?: callable(float): void, random?: callable(): float,
+     *   local?: array<string, mixed>
      * } $options
      *   - baseUrl:    API root (default env CATZPRINT_BASE_URL or https://api-v1.catzprint.com)
      *   - orgId:      skip the GET /v1/key lookup
      *   - timeout:    seconds per request (default 30)
      *   - maxRetries: retries on network errors, 429 and 502/503/504 (default 2)
      *   - sleeper / random: test hooks for backoff
+     *   - local:      local printing through stations on the same network; see the
+     *                 README "Local printing (offline)" for its keys (mode, locationId,
+     *                 stationUrls, fingerprints, discover, tokenStore, token, …)
      */
-    public function __construct(#[\SensitiveParameter] ?string $apiKey = null, array $options = [])
+    public function __construct(#[\SensitiveParameter] ?string $apiKey = null, #[\SensitiveParameter] array $options = [])
     {
-        $unknown = array_diff(array_keys($options), ['baseUrl', 'orgId', 'timeout', 'maxRetries', 'sleeper', 'random']);
+        $unknown = array_diff(array_keys($options), ['baseUrl', 'orgId', 'timeout', 'maxRetries', 'sleeper', 'random', 'local']);
         if ($unknown !== []) {
             throw new \InvalidArgumentException('Unknown client option(s): ' . implode(', ', $unknown) . '.');
         }
+        $local = $options['local'] ?? [];
+        if (!is_array($local)) {
+            throw new \InvalidArgumentException('The "local" option must be an array.');
+        }
+        $localCfg = new LocalConfig($local);
         $apiKey ??= self::env('CATZPRINT_API_KEY');
         if ($apiKey === null || trim($apiKey) === '') {
-            throw new \InvalidArgumentException('No CatzPrint API key: pass one to new CatzPrint\Client() or set CATZPRINT_API_KEY.');
+            // A paired device (local mode with a static token) needs no API key;
+            // its cloud calls throw AuthenticationException "missing_api_key".
+            if ($localCfg->mode !== Mode::LOCAL || $localCfg->token === '') {
+                throw new \InvalidArgumentException('No CatzPrint API key: pass one to new CatzPrint\Client() or set CATZPRINT_API_KEY (only a paired device in local mode, "local" => ["mode" => "local", "token" => "czd_…"], can work without one).');
+            }
+            $apiKey = '';
         }
         $this->apiKey = trim($apiKey);
         $baseUrl = $options['baseUrl'] ?? self::env('CATZPRINT_BASE_URL') ?? self::DEFAULT_BASE_URL;
@@ -87,6 +119,10 @@ final class Client
         $this->locations = new Locations($this);
         $this->templates = new Templates($this);
         $this->webhooks = new Webhooks();
+        $this->local = new Local($this);
+        $this->localTokens = new LocalTokens($this);
+        $this->localEndpoints = new LocalEndpoints($this);
+        $this->localState = new LocalState($this, $localCfg, $this->apiKey);
     }
 
     /** The API key in use and its organization (GET /v1/key, cached). */
@@ -216,6 +252,18 @@ final class Client
         return $this->http;
     }
 
+    /** @internal */
+    public function localState(): LocalState
+    {
+        return $this->localState;
+    }
+
+    /** @internal The organization ID if known without a request. */
+    public function knownOrgId(): ?string
+    {
+        return $this->orgId;
+    }
+
     /** @internal "/v1/orgs/{org}" + $suffix */
     public function orgPath(string $suffix): string
     {
@@ -223,7 +271,7 @@ final class Client
     }
 
     /** Masks a secret for logs: "cz_live_…a1b2". */
-    public static function redact(string $secret): string
+    public static function redact(#[\SensitiveParameter] string $secret): string
     {
         if (preg_match('/^(cz_(?:live|test)_)/', $secret, $m)) {
             return $m[1] . '…' . (strlen($secret) > 16 ? substr($secret, -4) : '');
@@ -236,9 +284,10 @@ final class Client
     public function __debugInfo(): array
     {
         return [
-            'apiKey' => self::redact($this->apiKey),
+            'apiKey' => $this->apiKey === '' ? null : self::redact($this->apiKey),
             'baseUrl' => $this->http->baseUrl(),
             'orgId' => $this->orgId,
+            'localMode' => $this->localState->cfg->mode,
         ];
     }
 

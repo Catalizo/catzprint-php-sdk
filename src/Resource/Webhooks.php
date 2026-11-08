@@ -13,12 +13,12 @@ use CatzPrint\Webhook;
  */
 final class Webhooks
 {
-    public function verify(string $payload, ?string $signatureHeader, string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE): Event
+    public function verify(string $payload, ?string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE): Event
     {
         return Webhook::verify($payload, $signatureHeader, $secret, $tolerance);
     }
 
-    public function constructEvent(string $payload, ?string $signatureHeader, string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE): Event
+    public function constructEvent(string $payload, ?string $signatureHeader, #[\SensitiveParameter] string $secret, int $tolerance = Webhook::DEFAULT_TOLERANCE): Event
     {
         return Webhook::constructEvent($payload, $signatureHeader, $secret, $tolerance);
     }

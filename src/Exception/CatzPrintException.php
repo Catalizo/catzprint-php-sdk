@@ -68,4 +68,48 @@ class CatzPrintException extends \RuntimeException
     {
         return $this->retryAfter;
     }
+
+    // ---- local printing helpers ------------------------------------------
+
+    /** A station refused the job because the routed printer is offline. */
+    public function isPrinterOffline(): bool
+    {
+        return $this->errorCode === 'printer_offline';
+    }
+
+    /** A station refused (or failed) the job because the printer is out of paper. */
+    public function isOutOfPaper(): bool
+    {
+        return $this->errorCode === 'out_of_paper';
+    }
+
+    /** The printer's cover is open. */
+    public function isCoverOpen(): bool
+    {
+        return $this->errorCode === 'cover_open';
+    }
+
+    /**
+     * The station has been offline too long or has used its offline prints
+     * (402 offline_allowance_exhausted). Connect it to the internet.
+     */
+    public function isOfflineAllowanceExhausted(): bool
+    {
+        return $this->errorCode === 'offline_allowance_exhausted';
+    }
+
+    /** No station could be reached (a StationUnreachableException). */
+    public function isStationUnreachable(): bool
+    {
+        return $this instanceof StationUnreachableException;
+    }
+
+    /**
+     * A job request was delivered but its outcome is unknown (it may have
+     * printed). Retry later with the same idempotency key.
+     */
+    public function isOutcomeUnknown(): bool
+    {
+        return $this instanceof OutcomeUnknownException;
+    }
 }

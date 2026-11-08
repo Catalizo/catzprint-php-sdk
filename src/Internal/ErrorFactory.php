@@ -10,6 +10,7 @@ use CatzPrint\Exception\ConflictException;
 use CatzPrint\Exception\NotFoundException;
 use CatzPrint\Exception\OutOfPrintsException;
 use CatzPrint\Exception\PermissionException;
+use CatzPrint\Exception\PrinterException;
 use CatzPrint\Exception\RateLimitException;
 use CatzPrint\Exception\ServerException;
 use CatzPrint\Exception\ValidationException;
@@ -46,6 +47,13 @@ final class ErrorFactory
         if ($retryAfter === null) {
             $retryAfter = self::parseRetryAfter($res->header('Retry-After'));
         }
+        if ($res->status >= 300 && $res->status < 400) {
+            // Redirects are never followed (the API key only goes to the configured host).
+            $code = 'unexpected_redirect';
+            if ($message === '') {
+                $message = 'The API answered with a redirect, which the SDK doesn\'t follow. Check the base URL.';
+            }
+        }
         if ($message === '') {
             $message = sprintf('CatzPrint API answered HTTP %d.', $res->status);
         }
@@ -66,6 +74,7 @@ final class ErrorFactory
     ): CatzPrintException {
         $class = match (true) {
             $code === 'out_of_prints' || $status === 402 => OutOfPrintsException::class,
+            in_array($code, PrinterException::CODES, true) => PrinterException::class,
             $status === 401 => AuthenticationException::class,
             $status === 403 => PermissionException::class,
             $status === 404 => NotFoundException::class,
